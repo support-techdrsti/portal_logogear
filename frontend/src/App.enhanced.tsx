@@ -245,27 +245,64 @@ function App() {
     }
   }
 
-  const handleSSOLogin = async (email: string) => {
-    try {
-      const response = await fetch('/auth/mock-login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include',
-        body: JSON.stringify({ email })
-      })
-      if (response.ok) {
-        await checkAuth()
-      } else {
-        const error = await response.json()
-        alert(error.error || 'Login failed')
+  const handleSSOLogin = async () => {
+    // Redirect to proper OAuth flow
+    window.location.href = '/auth/login';
+  };
+
+  // Handle OAuth callback
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const state = urlParams.get('state');
+    const authResult = urlParams.get('auth_result');
+    
+    // Handle auth result from GET redirect
+    if (authResult) {
+      try {
+        const data = JSON.parse(decodeURIComponent(authResult));
+        if (data.success) {
+          setUser(data.user);
+          console.log('✅ OAuth login successful via GET redirect');
+          // Clear URL parameters
+          window.history.replaceState({}, document.title, '/');
+        } else {
+          console.error('OAuth callback failed:', data.error);
+          alert('Authentication failed: ' + data.error);
+        }
+      } catch (error) {
+        console.error('Error parsing auth result:', error);
+        alert('Authentication failed. Please try again.');
       }
-    } catch (error) {
-      console.error('SSO Login failed:', error)
-      alert('Login failed. Please try again.')
+      return;
     }
-  }
+    
+    // Handle traditional OAuth callback with code
+    if (code && window.location.pathname === '/auth/callback') {
+      // Exchange authorization code for token
+      fetch('/auth/callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, state })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          setUser(data.user);
+          console.log('✅ OAuth login successful via POST');
+          // Clear URL parameters
+          window.history.replaceState({}, document.title, '/');
+        } else {
+          console.error('OAuth callback failed:', data.error);
+          alert('Authentication failed: ' + data.error);
+        }
+      })
+      .catch(error => {
+        console.error('OAuth callback error:', error);
+        alert('Authentication failed. Please try again.');
+      });
+    }
+  }, []);
 
   const handleAdminLogin = async (username: string, password: string) => {
     try {
@@ -578,11 +615,10 @@ function App() {
 }
 
 function LoginPage({ onSSOLogin, onAdminLogin }: { 
-  onSSOLogin: (email: string) => void, 
+  onSSOLogin: () => void, 
   onAdminLogin: (username: string, password: string) => void 
 }) {
   const [loginMode, setLoginMode] = useState<'sso' | 'admin'>('sso')
-  const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -591,7 +627,7 @@ function LoginPage({ onSSOLogin, onAdminLogin }: {
     e.preventDefault()
     setIsLoading(true)
     try {
-      await onSSOLogin(email)
+      onSSOLogin()
     } finally {
       setIsLoading(false)
     }
@@ -773,40 +809,35 @@ function LoginPage({ onSSOLogin, onAdminLogin }: {
 
         {/* SSO Login Form */}
         {loginMode === 'sso' && (
-          <form onSubmit={handleSSOSubmit} style={{ marginBottom: '32px' }}>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{
-                display: 'block',
-                fontSize: '14px',
-                fontWeight: '600',
-                color: colors.gray[700],
-                marginBottom: '8px'
+          <div style={{ marginBottom: '32px' }}>
+            <div style={{ 
+              marginBottom: '24px',
+              padding: '20px',
+              backgroundColor: colors.light,
+              borderRadius: '12px',
+              border: `1px solid ${colors.gray[200]}`
+            }}>
+              <h3 style={{ 
+                margin: '0 0 12px 0',
+                color: colors.primary,
+                fontSize: '16px',
+                fontWeight: '600'
               }}>
-                Email Address
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                style={{
-                  width: '100%',
-                  padding: '16px',
-                  border: `2px solid ${colors.gray[200]}`,
-                  borderRadius: '12px',
-                  fontSize: '16px',
-                  outline: 'none',
-                  transition: 'border-color 0.2s',
-                  boxSizing: 'border-box'
-                }}
-                onFocus={(e) => e.target.style.borderColor = colors.primary}
-                onBlur={(e) => e.target.style.borderColor = colors.gray[200]}
-                placeholder="Enter your company email"
-              />
+                🔐 Secure Single Sign-On
+              </h3>
+              <p style={{ 
+                margin: 0,
+                color: colors.gray[600],
+                fontSize: '14px',
+                lineHeight: '1.5'
+              }}>
+                Click below to authenticate with your company credentials through our secure SSO provider. 
+                You'll be redirected to verify your identity and then brought back to the portal.
+              </p>
             </div>
             
             <button
-              type="submit"
+              onClick={handleSSOSubmit}
               disabled={isLoading}
               className="btn-primary"
               style={{
@@ -837,7 +868,7 @@ function LoginPage({ onSSOLogin, onAdminLogin }: {
                     borderRadius: '50%',
                     animation: 'spin 1s linear infinite'
                   }}></div>
-                  Signing in...
+                  Redirecting to SSO...
                 </>
               ) : (
                 <>
@@ -863,7 +894,7 @@ function LoginPage({ onSSOLogin, onAdminLogin }: {
                 Use your company email address to access the portal
               </p>
             </div>
-          </form>
+          </div>
         )}
 
         {/* Admin Login Form */}
@@ -3099,7 +3130,7 @@ function UserManagementModal({ onClose }: { onClose: () => void }) {
     { id: 2, name: 'Junaid', email: 'junaid@logogear.co.in', role: 'User', status: 'Active', lastLogin: '1 day ago' },
     { id: 3, name: 'Javed', email: 'javed@logogear.co.in', role: 'User', status: 'Active', lastLogin: '3 days ago' },
     { id: 4, name: 'Support', email: 'support@techdrsti.com', role: 'User', status: 'Active', lastLogin: '5 minutes ago' },
-    { id: 5, name: 'Sidhanraj', email: 'sidhanraj@techdrsti.com', role: 'User', status: 'Inactive', lastLogin: '1 week ago' }
+    { id: 5, name: 'dhanraj', email: 'dhanraj@techdrsti.com', role: 'User', status: 'Inactive', lastLogin: '1 week ago' }
   ])
   const [showAddUserForm, setShowAddUserForm] = useState(false)
   const [editingUser, setEditingUser] = useState<any>(null)
@@ -3846,7 +3877,7 @@ function ActivityModal({ onClose }: { onClose: () => void }) {
     { id: 4, user: 'javed@logogear.co.in', action: 'Generated DC files', time: '2 hours ago', type: 'file', details: '15 DC files created' },
     { id: 5, user: 'support@techdrsti.com', action: 'Accessed shipping tools', time: '3 hours ago', type: 'access', details: 'BlueDart processing' },
     { id: 6, user: 'admin', action: 'User management accessed', time: '4 hours ago', type: 'admin', details: 'Viewed user list' },
-    { id: 7, user: 'sidhanraj@techdrsti.com', action: 'Failed login attempt', time: '5 hours ago', type: 'security', details: 'Invalid credentials' },
+    { id: 7, user: 'dhanraj@techdrsti.com', action: 'Failed login attempt', time: '5 hours ago', type: 'security', details: 'Invalid credentials' },
     { id: 8, user: 'info@logogear.co.in', action: 'Logged out', time: '6 hours ago', type: 'auth', details: 'Session ended' }
   ])
 

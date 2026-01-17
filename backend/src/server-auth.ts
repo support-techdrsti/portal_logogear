@@ -23,7 +23,7 @@ const AUTHORIZED_USERS = [
   'javed@logogear.co.in', 
   'info@logogear.co.in',
   'support@techdrsti.com',
-  'sidhanraj@techdrsti.com',
+  'dhanraj@techdrsti.com',
   'mahadesh@techdrsti.com',
   'harshithak82@gmail.com'
 ];
@@ -33,6 +33,11 @@ const ADMIN_CREDENTIALS = {
   username: 'admin',
   password: 'l0g0gear'
 };
+
+// Temporary storage for auth states, codes, and verification codes (in production, use Redis or database)
+const pendingAuthStates = new Map();
+const authorizationCodes = new Map();
+const verificationCodes = new Map(); // Store generated verification codes
 
 // File cleanup functions
 function cleanupOldFiles() {
@@ -174,9 +179,541 @@ app.get('/api/status', (req, res) => {
 
 // Authentication endpoints
 app.get('/auth/login', (req, res) => {
-  // In production, this would redirect to SSO provider
-  // For development, redirect to mock login success
-  res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3001'}/auth/callback?token=mock-jwt-token`);
+  // Generate a secure state parameter for CSRF protection
+  const state = require('crypto').randomBytes(32).toString('hex');
+  const redirectUri = encodeURIComponent(`${process.env.FRONTEND_URL || 'http://localhost:3001'}/auth/callback`);
+  
+  // In production, this would redirect to actual SSO provider (Google, Azure AD, etc.)
+  // For development, we'll simulate a proper OAuth flow
+  const authUrl = `/auth/sso-provider?` +
+    `response_type=code&` +
+    `client_id=logogear-portal&` +
+    `redirect_uri=${redirectUri}&` +
+    `scope=openid email profile&` +
+    `state=${state}`;
+  
+  // Store state in session for validation (in production, use proper session store)
+  pendingAuthStates.set(state, { timestamp: Date.now() });
+  
+  console.log('🔐 Redirecting to SSO provider with state:', state);
+  res.redirect(authUrl);
+});
+
+// Simulated SSO Provider (in production, this would be external)
+app.get('/auth/sso-provider', (req, res) => {
+  const { redirect_uri, state, client_id } = req.query;
+  
+  // Validate client_id
+  if (client_id !== 'logogear-portal') {
+    return res.status(400).json({ error: 'Invalid client_id' });
+  }
+  
+  // In production, this would show the actual SSO provider's login page
+  // For development, we'll show a secure two-step login form
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Logogear SSO - Secure Login</title>
+      <style>
+        body { font-family: Arial, sans-serif; max-width: 450px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
+        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; color: #333; }
+        input { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
+        input:focus { border-color: #1B4B5A; outline: none; }
+        button { width: 100%; padding: 15px; background: #1B4B5A; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold; }
+        button:hover { background: #2E6B7A; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .error { color: #e74c3c; margin-top: 10px; padding: 10px; background: #fdf2f2; border-radius: 4px; }
+        .success { color: #27ae60; margin-top: 10px; padding: 10px; background: #f2fdf2; border-radius: 4px; }
+        .info { color: #666; font-size: 14px; margin-bottom: 20px; background: #f8f9fa; padding: 15px; border-radius: 8px; }
+        .step { display: none; }
+        .step.active { display: block; }
+        .step-indicator { display: flex; justify-content: center; margin-bottom: 30px; }
+        .step-dot { width: 12px; height: 12px; border-radius: 50%; background: #ddd; margin: 0 5px; }
+        .step-dot.active { background: #1B4B5A; }
+        .step-dot.completed { background: #27ae60; }
+        .code-display { background: #e8f4f8; padding: 15px; border-radius: 8px; margin: 10px 0; text-align: center; }
+        .code-display strong { font-size: 24px; color: #1B4B5A; letter-spacing: 2px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h2 style="text-align: center; color: #1B4B5A; margin-bottom: 30px;">🔐 Logogear SSO Login</h2>
+        
+        <!-- Step Indicator -->
+        <div class="step-indicator">
+          <div class="step-dot active" id="step1-dot"></div>
+          <div class="step-dot" id="step2-dot"></div>
+        </div>
+        
+        <!-- Step 1: Email Entry -->
+        <div class="step active" id="step1">
+          <div class="info">
+            <strong>Step 1:</strong> Enter your authorized email address to receive a verification code.
+          </div>
+          
+          <form id="emailForm" onsubmit="handleEmailSubmit(event)">
+            <div class="form-group">
+              <label for="email">Email Address:</label>
+              <input type="email" id="email" name="email" required 
+                     placeholder="your.email@logogear.co.in" />
+            </div>
+            
+            <button type="submit" id="emailBtn">Send Verification Code</button>
+            <div id="emailError" class="error" style="display: none;"></div>
+            <div id="emailSuccess" class="success" style="display: none;"></div>
+          </form>
+        </div>
+        
+        <!-- Step 2: Code Verification -->
+        <div class="step" id="step2">
+          <div class="info">
+            <strong>Step 2:</strong> Enter the 6-digit verification code sent to your email.
+          </div>
+          
+          <div id="codeDisplay" class="code-display" style="display: none;">
+            <p><strong>Development Mode:</strong> Your verification code is:</p>
+            <strong id="displayedCode"></strong>
+            <p style="font-size: 12px; margin-top: 10px;">In production, this would be sent to your email.</p>
+          </div>
+          
+          <form id="codeForm" onsubmit="handleCodeSubmit(event)">
+            <div class="form-group">
+              <label for="verification">Verification Code:</label>
+              <input type="text" id="verification" name="verification" required 
+                     placeholder="Enter 6-digit code" maxlength="6" />
+            </div>
+            
+            <button type="submit" id="codeBtn">Verify & Sign In</button>
+            <div id="codeError" class="error" style="display: none;"></div>
+          </form>
+          
+          <p style="text-align: center; margin-top: 20px;">
+            <a href="#" onclick="goBackToStep1()" style="color: #1B4B5A;">← Use different email</a>
+          </p>
+        </div>
+      </div>
+      
+      <script>
+        let currentEmail = '';
+        
+        async function handleEmailSubmit(event) {
+          event.preventDefault();
+          
+          const email = document.getElementById('email').value;
+          const emailBtn = document.getElementById('emailBtn');
+          const emailError = document.getElementById('emailError');
+          const emailSuccess = document.getElementById('emailSuccess');
+          
+          // Reset messages
+          emailError.style.display = 'none';
+          emailSuccess.style.display = 'none';
+          
+          // Disable button
+          emailBtn.disabled = true;
+          emailBtn.textContent = 'Sending...';
+          
+          try {
+            const response = await fetch('/auth/generate-verification', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              currentEmail = email;
+              emailSuccess.textContent = result.message;
+              emailSuccess.style.display = 'block';
+              
+              // Show development code if available
+              if (result.developmentCode) {
+                document.getElementById('displayedCode').textContent = result.developmentCode;
+                document.getElementById('codeDisplay').style.display = 'block';
+              }
+              
+              // Move to step 2 after 2 seconds
+              setTimeout(() => {
+                document.getElementById('step1').classList.remove('active');
+                document.getElementById('step2').classList.add('active');
+                document.getElementById('step1-dot').classList.remove('active');
+                document.getElementById('step1-dot').classList.add('completed');
+                document.getElementById('step2-dot').classList.add('active');
+                document.getElementById('verification').focus();
+              }, 2000);
+              
+            } else {
+              emailError.textContent = result.error || 'Failed to send verification code';
+              emailError.style.display = 'block';
+            }
+          } catch (error) {
+            emailError.textContent = 'Network error. Please try again.';
+            emailError.style.display = 'block';
+          } finally {
+            emailBtn.disabled = false;
+            emailBtn.textContent = 'Send Verification Code';
+          }
+        }
+        
+        async function handleCodeSubmit(event) {
+          event.preventDefault();
+          
+          const verification = document.getElementById('verification').value;
+          const codeBtn = document.getElementById('codeBtn');
+          const codeError = document.getElementById('codeError');
+          
+          // Reset messages
+          codeError.style.display = 'none';
+          
+          // Disable button
+          codeBtn.disabled = true;
+          codeBtn.textContent = 'Verifying...';
+          
+          try {
+            const response = await fetch('/auth/sso-authenticate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                email: currentEmail,
+                verification,
+                state: '${state}',
+                redirect_uri: '${redirect_uri}'
+              })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              // Redirect back to application with authorization code
+              window.location.href = result.redirect_url;
+            } else {
+              codeError.textContent = result.error || 'Authentication failed';
+              codeError.style.display = 'block';
+            }
+          } catch (error) {
+            codeError.textContent = 'Network error. Please try again.';
+            codeError.style.display = 'block';
+          } finally {
+            codeBtn.disabled = false;
+            codeBtn.textContent = 'Verify & Sign In';
+          }
+        }
+        
+        function goBackToStep1() {
+          document.getElementById('step2').classList.remove('active');
+          document.getElementById('step1').classList.add('active');
+          document.getElementById('step2-dot').classList.remove('active');
+          document.getElementById('step1-dot').classList.remove('completed');
+          document.getElementById('step1-dot').classList.add('active');
+          document.getElementById('email').focus();
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+// Generate verification code endpoint
+app.post('/auth/generate-verification', (req, res) => {
+  const { email } = req.body;
+  
+  if (!email) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Email address is required' 
+    });
+  }
+  
+  // Validate email is in authorized list
+  if (!AUTHORIZED_USERS.includes(email)) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Email address not authorized. Please contact administrator.' 
+    });
+  }
+  
+  // Generate 6-digit verification code
+  const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+  
+  // Store verification code (expires in 5 minutes)
+  verificationCodes.set(email, {
+    code: verificationCode,
+    timestamp: Date.now(),
+    attempts: 0
+  });
+  
+  // In production, send email here
+  // await sendVerificationEmail(email, verificationCode);
+  
+  console.log(`📧 Generated verification code for ${email}: ${verificationCode}`);
+  console.log(`🔔 In production, this would be sent via email/SMS`);
+  
+  // For development, we'll return the code in the response
+  // In production, remove this and only send via email
+  res.json({
+    success: true,
+    message: 'Verification code generated and sent to your email',
+    // Remove this in production:
+    developmentCode: verificationCode,
+    expiresIn: '5 minutes'
+  });
+});
+
+// SSO Authentication endpoint
+app.post('/auth/sso-authenticate', (req, res) => {
+  const { email, verification, state, redirect_uri } = req.body;
+  
+  console.log('🔍 SSO Authentication attempt:', { email, verification, state: state?.substring(0, 8) + '...', redirect_uri });
+  
+  // Validate state parameter (CSRF protection)
+  if (!state || !pendingAuthStates.has(state)) {
+    console.log('❌ Invalid or expired state:', state);
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Invalid or expired authentication request' 
+    });
+  }
+  
+  // Check if state is not too old (5 minutes max)
+  const stateData = pendingAuthStates.get(state);
+  if (Date.now() - stateData.timestamp > 5 * 60 * 1000) {
+    console.log('❌ State expired');
+    pendingAuthStates.delete(state);
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Authentication request expired' 
+    });
+  }
+  
+  // Validate email is in authorized list
+  if (!AUTHORIZED_USERS.includes(email)) {
+    console.log('❌ Email not authorized:', email);
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Email address not authorized. Please contact administrator.' 
+    });
+  }
+  
+  // Validate verification code
+  if (!verificationCodes.has(email)) {
+    console.log('❌ No verification code found for:', email);
+    console.log('📋 Available codes:', Array.from(verificationCodes.keys()));
+    return res.status(401).json({ 
+      success: false, 
+      error: 'No verification code found. Please request a new code.' 
+    });
+  }
+  
+  const codeData = verificationCodes.get(email);
+  console.log('🔍 Code data:', { code: codeData.code, attempts: codeData.attempts, age: Date.now() - codeData.timestamp });
+  
+  // Check if code is expired (5 minutes)
+  if (Date.now() - codeData.timestamp > 5 * 60 * 1000) {
+    console.log('❌ Verification code expired');
+    verificationCodes.delete(email);
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Verification code expired. Please request a new code.' 
+    });
+  }
+  
+  // Check attempt limit (max 3 attempts)
+  if (codeData.attempts >= 3) {
+    console.log('❌ Too many attempts');
+    verificationCodes.delete(email);
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Too many failed attempts. Please request a new code.' 
+    });
+  }
+  
+  // Validate the verification code
+  if (verification !== codeData.code) {
+    codeData.attempts++;
+    verificationCodes.set(email, codeData);
+    
+    return res.status(401).json({ 
+      success: false, 
+      error: `Invalid verification code. ${3 - codeData.attempts} attempts remaining.` 
+    });
+  }
+  
+  // Code is valid - clean up
+  verificationCodes.delete(email);
+  
+  // Generate authorization code
+  const authCode = require('crypto').randomBytes(32).toString('hex');
+  
+  // Store authorization code with user info (expires in 10 minutes)
+  authorizationCodes.set(authCode, {
+    email,
+    timestamp: Date.now(),
+    state,
+    used: false
+  });
+  
+  // Clean up state
+  pendingAuthStates.delete(state);
+  
+  // Redirect back to application with authorization code
+  const redirectUrl = `${redirect_uri}?code=${authCode}&state=${state}`;
+  
+  console.log('✅ SSO authentication successful for:', email);
+  console.log('🔑 Generated authorization code:', authCode.substring(0, 8) + '...');
+  
+  res.json({
+    success: true,
+    redirect_url: redirectUrl
+  });
+});
+
+// OAuth callback endpoint - exchange code for token
+app.post('/auth/callback', (req, res) => {
+  const { code, state } = req.body;
+  
+  if (!code) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Authorization code required' 
+    });
+  }
+  
+  // Validate authorization code
+  if (!authorizationCodes.has(code)) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Invalid authorization code' 
+    });
+  }
+  
+  const codeData = authorizationCodes.get(code);
+  
+  // Check if code is expired (10 minutes)
+  if (Date.now() - codeData.timestamp > 10 * 60 * 1000) {
+    authorizationCodes.delete(code);
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Authorization code expired' 
+    });
+  }
+  
+  // Check if code was already used
+  if (codeData.used) {
+    authorizationCodes.delete(code);
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Authorization code already used' 
+    });
+  }
+  
+  // Mark code as used
+  codeData.used = true;
+  
+  // Create user session
+  const user = {
+    id: `user-${codeData.email.split('@')[0]}`,
+    email: codeData.email,
+    name: codeData.email.split('@')[0].charAt(0).toUpperCase() + codeData.email.split('@')[0].slice(1),
+    department: codeData.email.includes('logogear.co.in') ? 'Logogear' : 'TechDrsti',
+    roles: ['user'],
+    authenticatedAt: new Date().toISOString(),
+    authMethod: 'sso'
+  };
+  
+  // Store user session
+  currentSession = user;
+  
+  // Generate JWT token (in production, use proper JWT library)
+  const token = require('crypto').randomBytes(32).toString('hex');
+  
+  // Clean up authorization code
+  setTimeout(() => authorizationCodes.delete(code), 1000);
+  
+  console.log('🎉 OAuth flow completed successfully for:', user.email);
+  
+  res.json({
+    success: true,
+    user: user,
+    token: token
+  });
+});
+
+// OAuth callback endpoint - handle GET requests from redirect
+app.get('/auth/callback', (req, res) => {
+  const { code, state } = req.query;
+  
+  console.log('🔄 OAuth GET callback received:', { code: code?.toString().substring(0, 8) + '...', state: state?.toString().substring(0, 8) + '...' });
+  
+  if (!code) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Authorization code required' 
+    });
+  }
+  
+  // Validate authorization code
+  if (!authorizationCodes.has(code as string)) {
+    console.log('❌ Invalid authorization code');
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Invalid authorization code' 
+    });
+  }
+  
+  const codeData = authorizationCodes.get(code as string);
+  
+  // Check if code is expired (10 minutes)
+  if (Date.now() - codeData.timestamp > 10 * 60 * 1000) {
+    console.log('❌ Authorization code expired');
+    authorizationCodes.delete(code as string);
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Authorization code expired' 
+    });
+  }
+  
+  // Check if code was already used
+  if (codeData.used) {
+    console.log('❌ Authorization code already used');
+    authorizationCodes.delete(code as string);
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Authorization code already used' 
+    });
+  }
+  
+  // Mark code as used
+  codeData.used = true;
+  
+  // Create user session
+  const user = {
+    id: `user-${codeData.email.split('@')[0]}`,
+    email: codeData.email,
+    name: codeData.email.split('@')[0].charAt(0).toUpperCase() + codeData.email.split('@')[0].slice(1),
+    department: codeData.email.includes('logogear.co.in') ? 'Logogear' : 'TechDrsti',
+    roles: ['user'],
+    authenticatedAt: new Date().toISOString(),
+    authMethod: 'sso'
+  };
+  
+  // Store user session
+  currentSession = user;
+  
+  // Generate JWT token (in production, use proper JWT library)
+  const token = require('crypto').randomBytes(32).toString('hex');
+  
+  // Clean up authorization code
+  setTimeout(() => authorizationCodes.delete(code as string), 1000);
+  
+  console.log('🎉 OAuth GET callback completed successfully for:', user.email);
+  
+  // For GET requests, we need to redirect back to the frontend with the user data
+  // In a real OAuth flow, this would be handled differently, but for our setup:
+  const userData = encodeURIComponent(JSON.stringify({ success: true, user, token }));
+  res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3001'}?auth_result=${userData}`);
 });
 
 app.post('/auth/mock-login', (req, res) => {
