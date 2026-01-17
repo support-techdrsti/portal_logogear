@@ -71,13 +71,13 @@ function cleanupOldFiles() {
           console.log(`🗑️  Deleted old file/directory: ${item}`);
         }
       } catch (error) {
-        console.error(`❌ Error deleting ${item}:`, error.message);
+        console.error(`❌ Error deleting ${item}:`, (error as Error).message);
       }
     }
     
     console.log(`✅ Cleanup completed. Deleted ${deletedCount} old items.`);
   } catch (error) {
-    console.error('❌ Error during cleanup:', error.message);
+    console.error('❌ Error during cleanup:', (error as Error).message);
   }
 }
 
@@ -96,7 +96,7 @@ function deleteFileAfterDownload(filePath: string, delay: number = 5000) {
         console.log(`🗑️  Immediate cleanup: Deleted ${path.basename(filePath)}`);
       }
     } catch (error) {
-      console.error(`❌ Error in immediate cleanup for ${filePath}:`, error.message);
+      console.error(`❌ Error in immediate cleanup for ${filePath}:`, (error as Error).message);
     }
   }, delay);
 }
@@ -207,6 +207,8 @@ app.post('/auth/mock-login', (req, res) => {
   }
   
   if (user) {
+    // Store user session
+    currentSession = user;
     // In a real app, you'd set session/JWT here
     res.json({
       success: true,
@@ -221,22 +223,21 @@ app.post('/auth/mock-login', (req, res) => {
   }
 });
 
-app.get('/auth/me', (req, res) => {
-  // Mock current user endpoint
-  // In production, this would validate JWT/session
-  const mockUser = {
-    id: 'mock-user-1',
-    email: 'developer@logogear.com',
-    name: 'Development User',
-    department: 'Engineering',
-    roles: ['user', 'developer']
-  };
+// Simple session storage (in production, use proper session management)
+let currentSession: any = null;
 
-  res.json(mockUser);
+app.get('/auth/me', (req, res) => {
+  // Return current session user or null
+  if (currentSession) {
+    res.json(currentSession);
+  } else {
+    res.status(401).json({ error: 'Not authenticated' });
+  }
 });
 
 app.post('/auth/logout', (req, res) => {
-  // Mock logout endpoint
+  // Clear current session
+  currentSession = null;
   res.json({
     success: true,
     message: 'Logged out successfully'
@@ -298,7 +299,7 @@ app.get('/api/cleanup/status', (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Error checking cleanup status',
-      message: error.message
+      message: (error as Error).message
     });
   }
 });
@@ -315,7 +316,7 @@ app.post('/api/cleanup/run', (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Error running manual cleanup',
-      message: error.message
+      message: (error as Error).message
     });
   }
 });
@@ -728,7 +729,7 @@ app.post('/api/shipping-tools/bluedart', upload.single('dataFile'), async (req, 
         }
         
         // Clean up uploaded file
-        if (fs.existsSync(req.file.path)) {
+        if (req.file && fs.existsSync(req.file.path)) {
           fs.unlinkSync(req.file.path);
         }
         
@@ -770,13 +771,13 @@ app.post('/api/shipping-tools/bluedart', upload.single('dataFile'), async (req, 
                     });
                   }
                   // Log failed generation
-                  logFileGeneration('anonymous', 'BLUEDART', result.filename, false, { error: err.message });
+                  logFileGeneration('anonymous', 'BLUEDART', result.filename || 'unknown', false, { error: (err as Error).message });
                 } else {
                   console.log(`BlueDart file sent successfully: ${result.filename}`);
                   
                   // Log successful generation
-                  logFileGeneration('anonymous', 'BLUEDART', result.filename, true, { 
-                    recordCount: result.count,
+                  logFileGeneration('anonymous', 'BLUEDART', result.filename || '', true, { 
+                    recordCount: (result as any).count || 0,
                     fileSize: fs.statSync(absolutePath).size 
                   });
                   
@@ -823,7 +824,7 @@ app.post('/api/shipping-tools/bluedart', upload.single('dataFile'), async (req, 
       if (fs.existsSync(tempCsvPath)) {
         fs.unlinkSync(tempCsvPath);
       }
-      if (fs.existsSync(req.file.path)) {
+      if (req.file && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }
       
@@ -898,7 +899,7 @@ app.post('/api/shipping-tools/dc', upload.single('dataFile'), async (req, res) =
         }
         
         // Clean up uploaded file
-        if (fs.existsSync(req.file.path)) {
+        if (req.file && fs.existsSync(req.file.path)) {
           fs.unlinkSync(req.file.path);
         }
         
@@ -967,8 +968,8 @@ app.post('/api/shipping-tools/dc', upload.single('dataFile'), async (req, res) =
             
             // Log successful generation
             logFileGeneration('anonymous', 'DC', path.basename(zipPath), true, { 
-              recordCount: result.count,
-              fileCount: result.files.length,
+              recordCount: (result as any).count || 0,
+              fileCount: (result as any).files?.length || 0,
               fileSize: fs.statSync(zipPath).size 
             });
             
@@ -979,7 +980,7 @@ app.post('/api/shipping-tools/dc', upload.single('dataFile'), async (req, res) =
             // Log failed generation
             logFileGeneration('anonymous', 'DC', `DC_Files_${batchId}.zip`, false, { 
               error: 'No DC files generated',
-              inputFile: req.file.originalname 
+              inputFile: req.file?.originalname || 'unknown'
             });
             
             res.status(500).json({ 
@@ -1010,7 +1011,7 @@ app.post('/api/shipping-tools/dc', upload.single('dataFile'), async (req, res) =
       if (fs.existsSync(tempCsvPath)) {
         fs.unlinkSync(tempCsvPath);
       }
-      if (fs.existsSync(req.file.path)) {
+      if (req.file && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }
       

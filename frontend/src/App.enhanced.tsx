@@ -217,6 +217,10 @@ function App() {
   const [currentPage, setCurrentPage] = useState('dashboard')
   const [showAddTileModal, setShowAddTileModal] = useState(false)
   const [showShippingModal, setShowShippingModal] = useState(false)
+  const [showUserManagementModal, setShowUserManagementModal] = useState(false)
+  const [showSystemMonitoringModal, setShowSystemMonitoringModal] = useState(false)
+  const [showFileManagementModal, setShowFileManagementModal] = useState(false)
+  const [showActivityModal, setShowActivityModal] = useState(false)
 
   useEffect(() => {
     checkAuth()
@@ -241,17 +245,47 @@ function App() {
     }
   }
 
-  const handleMockLogin = async () => {
+  const handleSSOLogin = async (email: string) => {
     try {
       const response = await fetch('/auth/mock-login', {
         method: 'POST',
-        credentials: 'include'
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ email })
       })
       if (response.ok) {
         await checkAuth()
+      } else {
+        const error = await response.json()
+        alert(error.error || 'Login failed')
       }
     } catch (error) {
-      console.error('Login failed:', error)
+      console.error('SSO Login failed:', error)
+      alert('Login failed. Please try again.')
+    }
+  }
+
+  const handleAdminLogin = async (username: string, password: string) => {
+    try {
+      const response = await fetch('/auth/mock-login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ username, password })
+      })
+      if (response.ok) {
+        await checkAuth()
+      } else {
+        const error = await response.json()
+        alert(error.error || 'Login failed')
+      }
+    } catch (error) {
+      console.error('Admin Login failed:', error)
+      alert('Login failed. Please try again.')
     }
   }
 
@@ -269,7 +303,7 @@ function App() {
     }
   }
 
-  const isAdmin = user?.roles?.includes('ADMIN')
+  const isAdmin = user?.roles?.includes('admin')
 
   if (loading) {
     return (
@@ -329,7 +363,7 @@ function App() {
   }
 
   if (!user) {
-    return <LoginPage onLogin={handleMockLogin} />
+    return <LoginPage onSSOLogin={handleSSOLogin} onAdminLogin={handleAdminLogin} />
   }
 
   return (
@@ -348,16 +382,32 @@ function App() {
 
       <main style={{ paddingTop: '80px' }}>
         {currentPage === 'dashboard' && (
-          <Dashboard 
-            user={user} 
-            isAdmin={isAdmin}
-            onShowAddTile={() => setShowAddTileModal(true)}
-            onShowShippingModal={() => setShowShippingModal(true)}
-          />
+          isAdmin ? (
+            <AdminDashboard 
+              user={user} 
+              onShowAddTile={() => setShowAddTileModal(true)}
+              onShowShippingModal={() => setShowShippingModal(true)}
+              onShowUserManagement={() => setShowUserManagementModal(true)}
+              onShowSystemMonitoring={() => setShowSystemMonitoringModal(true)}
+              onShowFileManagement={() => setShowFileManagementModal(true)}
+              onShowActivity={() => setShowActivityModal(true)}
+            />
+          ) : (
+            <Dashboard 
+              user={user} 
+              isAdmin={isAdmin}
+              onShowAddTile={() => setShowAddTileModal(true)}
+              onShowShippingModal={() => setShowShippingModal(true)}
+            />
+          )
         )}
         {currentPage === 'applications' && <Applications />}
         {currentPage === 'profile' && <Profile user={user} />}
-        {currentPage === 'admin' && isAdmin && <AdminPanel />}
+        {currentPage === 'admin' && isAdmin && <AdminPanel 
+          onShowUserManagement={() => setShowUserManagementModal(true)}
+          onShowSystemMonitoring={() => setShowSystemMonitoringModal(true)}
+          onShowAddTile={() => setShowAddTileModal(true)}
+        />}
       </main>
 
       {showAddTileModal && isAdmin && (
@@ -366,6 +416,22 @@ function App() {
 
       {showShippingModal && (
         <ShippingToolsModal onClose={() => setShowShippingModal(false)} />
+      )}
+
+      {showUserManagementModal && (
+        <UserManagementModal onClose={() => setShowUserManagementModal(false)} />
+      )}
+
+      {showSystemMonitoringModal && (
+        <SystemMonitoringModal onClose={() => setShowSystemMonitoringModal(false)} />
+      )}
+
+      {showFileManagementModal && (
+        <FileManagementModal onClose={() => setShowFileManagementModal(false)} />
+      )}
+
+      {showActivityModal && (
+        <ActivityModal onClose={() => setShowActivityModal(false)} />
       )}
 
       <style>{`
@@ -511,7 +577,36 @@ function App() {
   )
 }
 
-function LoginPage({ onLogin }: { onLogin: () => void }) {
+function LoginPage({ onSSOLogin, onAdminLogin }: { 
+  onSSOLogin: (email: string) => void, 
+  onAdminLogin: (username: string, password: string) => void 
+}) {
+  const [loginMode, setLoginMode] = useState<'sso' | 'admin'>('sso')
+  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+
+  const handleSSOSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
+    try {
+      await onSSOLogin(email)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleAdminSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
+    try {
+      await onAdminLogin(username, password)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   return (
     <div style={{ 
       minHeight: '100vh', 
@@ -630,57 +725,273 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
           </p>
         </div>
         
-        <div style={{ marginBottom: '32px' }}>
+        {/* Login Mode Toggle */}
+        <div style={{ 
+          display: 'flex', 
+          marginBottom: '32px',
+          backgroundColor: colors.gray[100],
+          borderRadius: '12px',
+          padding: '4px'
+        }}>
           <button
-            onClick={onLogin}
-            className="btn-primary"
+            onClick={() => setLoginMode('sso')}
             style={{
-              width: '100%',
-              padding: '20px 32px',
-              color: colors.white,
+              flex: 1,
+              padding: '12px 16px',
+              backgroundColor: loginMode === 'sso' ? colors.white : 'transparent',
+              color: loginMode === 'sso' ? colors.primary : colors.gray[600],
               border: 'none',
-              borderRadius: '16px',
-              fontSize: '18px',
-              fontWeight: '700',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
               cursor: 'pointer',
-              marginBottom: '20px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '16px',
-              position: 'relative',
-              zIndex: 1
+              boxShadow: loginMode === 'sso' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
+              transition: 'all 0.2s'
             }}
           >
-            <span style={{ fontSize: '24px' }}>🔐</span>
-            Sign in with Company SSO
+            🔐 Single Sign-On
           </button>
-          
           <button
-            onClick={onLogin}
-            className="btn-secondary"
+            onClick={() => setLoginMode('admin')}
             style={{
-              width: '100%',
-              padding: '20px 32px',
-              backgroundColor: colors.white,
-              color: colors.primary,
-              border: `3px solid ${colors.primary}`,
-              borderRadius: '16px',
-              fontSize: '18px',
-              fontWeight: '700',
+              flex: 1,
+              padding: '12px 16px',
+              backgroundColor: loginMode === 'admin' ? colors.white : 'transparent',
+              color: loginMode === 'admin' ? colors.primary : colors.gray[600],
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
               cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '16px',
-              position: 'relative',
-              zIndex: 1
+              boxShadow: loginMode === 'admin' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
+              transition: 'all 0.2s'
             }}
           >
-            <span style={{ fontSize: '24px' }}>🚀</span>
-            Development Login (Demo)
+            👤 Admin Login
           </button>
         </div>
+
+        {/* SSO Login Form */}
+        {loginMode === 'sso' && (
+          <form onSubmit={handleSSOSubmit} style={{ marginBottom: '32px' }}>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '14px',
+                fontWeight: '600',
+                color: colors.gray[700],
+                marginBottom: '8px'
+              }}>
+                Email Address
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  border: `2px solid ${colors.gray[200]}`,
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  outline: 'none',
+                  transition: 'border-color 0.2s',
+                  boxSizing: 'border-box'
+                }}
+                onFocus={(e) => e.target.style.borderColor = colors.primary}
+                onBlur={(e) => e.target.style.borderColor = colors.gray[200]}
+                placeholder="Enter your company email"
+              />
+            </div>
+            
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="btn-primary"
+              style={{
+                width: '100%',
+                padding: '20px 32px',
+                color: colors.white,
+                border: 'none',
+                borderRadius: '16px',
+                fontSize: '18px',
+                fontWeight: '700',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '16px',
+                position: 'relative',
+                zIndex: 1,
+                opacity: isLoading ? 0.7 : 1
+              }}
+            >
+              {isLoading ? (
+                <>
+                  <div style={{
+                    width: '20px',
+                    height: '20px',
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    borderTop: '2px solid white',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite'
+                  }}></div>
+                  Signing in...
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: '24px' }}>🔐</span>
+                  Sign in with Company SSO
+                </>
+              )}
+            </button>
+            
+            <div style={{
+              marginTop: '16px',
+              padding: '16px',
+              backgroundColor: colors.cyan[50],
+              borderRadius: '12px',
+              border: `1px solid ${colors.cyan[200]}`
+            }}>
+              <p style={{
+                fontSize: '13px',
+                color: colors.gray[600],
+                margin: 0,
+                textAlign: 'center'
+              }}>
+                Use your company email address to access the portal
+              </p>
+            </div>
+          </form>
+        )}
+
+        {/* Admin Login Form */}
+        {loginMode === 'admin' && (
+          <form onSubmit={handleAdminSubmit} style={{ marginBottom: '32px' }}>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '14px',
+                fontWeight: '600',
+                color: colors.gray[700],
+                marginBottom: '8px'
+              }}>
+                Username
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  border: `2px solid ${colors.gray[200]}`,
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  outline: 'none',
+                  transition: 'border-color 0.2s',
+                  boxSizing: 'border-box'
+                }}
+                onFocus={(e) => e.target.style.borderColor = colors.primary}
+                onBlur={(e) => e.target.style.borderColor = colors.gray[200]}
+                placeholder="Enter admin username"
+              />
+            </div>
+            
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '14px',
+                fontWeight: '600',
+                color: colors.gray[700],
+                marginBottom: '8px'
+              }}>
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  border: `2px solid ${colors.gray[200]}`,
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  outline: 'none',
+                  transition: 'border-color 0.2s',
+                  boxSizing: 'border-box'
+                }}
+                onFocus={(e) => e.target.style.borderColor = colors.primary}
+                onBlur={(e) => e.target.style.borderColor = colors.gray[200]}
+                placeholder="Enter admin password"
+              />
+            </div>
+            
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="btn-secondary"
+              style={{
+                width: '100%',
+                padding: '20px 32px',
+                backgroundColor: colors.white,
+                color: colors.primary,
+                border: `3px solid ${colors.primary}`,
+                borderRadius: '16px',
+                fontSize: '18px',
+                fontWeight: '700',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '16px',
+                position: 'relative',
+                zIndex: 1,
+                opacity: isLoading ? 0.7 : 1
+              }}
+            >
+              {isLoading ? (
+                <>
+                  <div style={{
+                    width: '20px',
+                    height: '20px',
+                    border: `2px solid ${colors.primary}30`,
+                    borderTop: `2px solid ${colors.primary}`,
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite'
+                  }}></div>
+                  Signing in...
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: '24px' }}>👤</span>
+                  Admin Login
+                </>
+              )}
+            </button>
+            
+            <div style={{
+              marginTop: '16px',
+              padding: '16px',
+              backgroundColor: colors.orange + '20',
+              borderRadius: '12px',
+              border: `1px solid ${colors.orange}40`
+            }}>
+              <p style={{
+                fontSize: '13px',
+                color: colors.gray[600],
+                margin: 0,
+                textAlign: 'center'
+              }}>
+                Contact administrator for admin access credentials
+              </p>
+            </div>
+          </form>
+        )}
         
         <div style={{
           padding: '32px',
@@ -1553,7 +1864,520 @@ function Profile({ user }: { user: any }) {
   )
 }
 
-function AdminPanel() {
+function AdminDashboard({ 
+  user, 
+  onShowAddTile, 
+  onShowShippingModal, 
+  onShowUserManagement, 
+  onShowSystemMonitoring, 
+  onShowFileManagement, 
+  onShowActivity 
+}: any) {
+  const [systemStats, setSystemStats] = useState({
+    totalUsers: 7,
+    activeUsers: 5,
+    totalFiles: 0,
+    systemHealth: 'Healthy'
+  })
+  const [recentActivity, setRecentActivity] = useState([
+    { id: 1, user: 'support@techdrsti.com', action: 'Generated BlueDart file', time: '2 minutes ago', type: 'file' },
+    { id: 2, user: 'junaid@logogear.co.in', action: 'Logged in', time: '15 minutes ago', type: 'auth' },
+    { id: 3, user: 'admin', action: 'System cleanup completed', time: '1 hour ago', type: 'system' }
+  ])
+
+  useEffect(() => {
+    fetchSystemStats()
+    fetchRecentActivity()
+  }, [])
+
+  const fetchSystemStats = async () => {
+    try {
+      const response = await fetch('/api/cleanup/status', { credentials: 'include' })
+      if (response.ok) {
+        const data = await response.json()
+        setSystemStats(prev => ({
+          ...prev,
+          totalFiles: data.totalFiles || 0
+        }))
+      }
+    } catch (error) {
+      console.error('Failed to fetch system stats:', error)
+    }
+  }
+
+  const fetchRecentActivity = async () => {
+    // In a real app, this would fetch from audit logs
+    // For now, using mock data
+  }
+
+  const adminStats = [
+    { label: 'Total Users', value: systemStats.totalUsers, icon: '👥', color: colors.primary, trend: '+2 this month' },
+    { label: 'Active Users', value: systemStats.activeUsers, icon: '🟢', color: colors.green, trend: 'Last 24h' },
+    { label: 'System Files', value: systemStats.totalFiles, icon: '📁', color: colors.accent, trend: 'Auto-cleanup enabled' },
+    { label: 'System Health', value: systemStats.systemHealth, icon: '💚', color: colors.green, trend: 'All systems operational' }
+  ]
+
+  const adminTools = [
+    {
+      id: 'user-management',
+      title: 'User Management',
+      description: 'Manage user accounts, roles, and permissions',
+      icon: '👥',
+      color: colors.primary,
+      category: 'Administration',
+      features: ['Add/Remove Users', 'Role Assignment', 'Access Control'],
+      action: 'Manage Users'
+    },
+    {
+      id: 'system-monitoring',
+      title: 'System Monitoring',
+      description: 'Monitor system performance, logs, and health metrics',
+      icon: '📊',
+      color: colors.accent,
+      category: 'Monitoring',
+      features: ['Performance Metrics', 'Error Logs', 'Health Checks'],
+      action: 'View Metrics'
+    },
+    {
+      id: 'file-management',
+      title: 'File Management',
+      description: 'Manage generated files, cleanup policies, and storage',
+      icon: '🗂️',
+      color: colors.secondary,
+      category: 'Storage',
+      features: ['File Cleanup', 'Storage Analytics', 'Retention Policies'],
+      action: 'Manage Files'
+    },
+    {
+      id: 'application-config',
+      title: 'Application Configuration',
+      description: 'Configure system settings, integrations, and features',
+      icon: '⚙️',
+      color: colors.purple,
+      category: 'Configuration',
+      features: ['System Settings', 'API Configuration', 'Feature Flags'],
+      action: 'Configure'
+    },
+    {
+      id: 'audit-logs',
+      title: 'Audit & Security',
+      description: 'View audit logs, security events, and compliance reports',
+      icon: '🔒',
+      color: colors.red,
+      category: 'Security',
+      features: ['Audit Trails', 'Security Events', 'Compliance Reports'],
+      action: 'View Logs'
+    },
+    {
+      id: 'shipping-tools-admin',
+      title: 'Shipping Tools Management',
+      description: 'Advanced shipping tools configuration and monitoring',
+      icon: '🚚',
+      color: colors.orange,
+      category: 'Operations',
+      features: ['Tool Configuration', 'Usage Analytics', 'Error Monitoring'],
+      action: 'Manage Tools',
+      isShippingTool: true
+    }
+  ]
+
+  const getActivityIcon = (type: string) => {
+    switch (type) {
+      case 'file': return '📄'
+      case 'auth': return '🔐'
+      case 'system': return '⚙️'
+      default: return '📝'
+    }
+  }
+
+  const getActivityColor = (type: string) => {
+    switch (type) {
+      case 'file': return colors.accent
+      case 'auth': return colors.green
+      case 'system': return colors.purple
+      default: return colors.gray[500]
+    }
+  }
+
+  return (
+    <div>
+      {/* Admin Welcome Header */}
+      <div style={{
+        background: `linear-gradient(135deg, ${colors.red} 0%, ${colors.purple} 100%)`,
+        borderRadius: '16px',
+        padding: '32px',
+        marginBottom: '32px',
+        color: colors.white,
+        position: 'relative',
+        overflow: 'hidden'
+      }}>
+        <div style={{
+          position: 'absolute',
+          top: '-50px',
+          right: '-50px',
+          width: '200px',
+          height: '200px',
+          background: 'rgba(255, 255, 255, 0.1)',
+          borderRadius: '50%'
+        }}></div>
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <h1 style={{ 
+            fontSize: '36px', 
+            fontWeight: 'bold', 
+            marginBottom: '8px',
+            margin: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px'
+          }}>
+            ⚡ Admin Dashboard
+          </h1>
+          <p style={{ 
+            fontSize: '18px', 
+            opacity: 0.9,
+            margin: 0
+          }}>
+            System administration and management console
+          </p>
+        </div>
+      </div>
+
+      {/* Admin Stats */}
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
+        gap: '20px',
+        marginBottom: '32px'
+      }}>
+        {adminStats.map((stat) => (
+          <div key={stat.label} style={{
+            backgroundColor: colors.white,
+            padding: '24px',
+            borderRadius: '12px',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+            border: `1px solid #f3f4f6`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px'
+          }}>
+            <div style={{
+              width: '48px',
+              height: '48px',
+              backgroundColor: `${stat.color}20`,
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '20px'
+            }}>
+              {stat.icon}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ 
+                fontSize: '24px', 
+                fontWeight: 'bold', 
+                color: colors.dark 
+              }}>
+                {stat.value}
+              </div>
+              <div style={{ 
+                fontSize: '14px', 
+                color: '#6b7280',
+                marginBottom: '4px'
+              }}>
+                {stat.label}
+              </div>
+              <div style={{ 
+                fontSize: '12px', 
+                color: stat.color,
+                fontWeight: '500'
+              }}>
+                {stat.trend}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '32px', marginBottom: '32px' }}>
+        {/* Admin Tools */}
+        <div>
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            marginBottom: '24px'
+          }}>
+            <div>
+              <h2 style={{ 
+                fontSize: '24px', 
+                fontWeight: 'bold', 
+                color: colors.dark,
+                margin: 0,
+                marginBottom: '4px'
+              }}>
+                Administration Tools
+              </h2>
+              <p style={{ 
+                color: '#6b7280',
+                margin: 0
+              }}>
+                Manage system components and configurations
+              </p>
+            </div>
+            
+            <button
+              onClick={onShowAddTile}
+              className="btn-primary"
+              style={{
+                padding: '12px 20px',
+                color: colors.white,
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              ➕ Add Tool
+            </button>
+          </div>
+
+          {/* Admin Tools Grid */}
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', 
+            gap: '20px'
+          }}>
+            {adminTools.map((tool) => (
+              <div 
+                key={tool.id} 
+                className="tile-hover"
+                style={{
+                  backgroundColor: colors.white,
+                  borderRadius: '16px',
+                  padding: '24px',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                  border: `1px solid #f3f4f6`,
+                  cursor: 'pointer',
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}
+                onClick={() => {
+                  if (tool.isShippingTool) {
+                    onShowShippingModal();
+                  } else if (tool.id === 'user-management') {
+                    onShowUserManagement();
+                  } else if (tool.id === 'system-monitoring') {
+                    onShowSystemMonitoring();
+                  } else if (tool.id === 'file-management') {
+                    onShowFileManagement();
+                  } else {
+                    console.log(`Opening ${tool.title}`)
+                  }
+                }}
+              >
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '4px',
+                  background: `linear-gradient(90deg, ${tool.color} 0%, ${tool.color}80 100%)`
+                }}></div>
+                
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', marginBottom: '16px' }}>
+                  <div style={{
+                    width: '56px',
+                    height: '56px',
+                    backgroundColor: `${tool.color}20`,
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '24px',
+                    flexShrink: 0
+                  }}>
+                    {tool.icon}
+                  </div>
+                  
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <h3 style={{ 
+                        fontSize: '18px', 
+                        fontWeight: '600', 
+                        color: colors.dark,
+                        margin: 0
+                      }}>
+                        {tool.title}
+                      </h3>
+                      <span style={{
+                        padding: '2px 8px',
+                        backgroundColor: `${tool.color}20`,
+                        color: tool.color,
+                        borderRadius: '12px',
+                        fontSize: '10px',
+                        fontWeight: '500'
+                      }}>
+                        {tool.category}
+                      </span>
+                    </div>
+                    <p style={{ 
+                      color: '#6b7280', 
+                      fontSize: '14px',
+                      margin: 0,
+                      lineHeight: '1.4'
+                    }}>
+                      {tool.description}
+                    </p>
+                  </div>
+                </div>
+                
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ 
+                    fontSize: '12px', 
+                    fontWeight: '500', 
+                    color: colors.dark,
+                    marginBottom: '8px'
+                  }}>
+                    Features:
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {tool.features.map((feature, index) => (
+                      <span key={index} style={{
+                        padding: '4px 8px',
+                        backgroundColor: '#f3f4f6',
+                        color: '#6b7280',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: '500'
+                      }}>
+                        {feature}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button style={{
+                    padding: '8px 16px',
+                    backgroundColor: tool.color,
+                    color: colors.white,
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    cursor: 'pointer'
+                  }}>
+                    🚀 {tool.action}
+                  </button>
+                  
+                  <div style={{ 
+                    fontSize: '12px', 
+                    color: '#9ca3af',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
+                    <span>•</span>
+                    <span>Admin Only</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Recent Activity Panel */}
+        <div>
+          <h3 style={{ 
+            fontSize: '20px', 
+            fontWeight: 'bold', 
+            color: colors.dark,
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            📊 Recent Activity
+          </h3>
+          
+          <div style={{
+            backgroundColor: colors.white,
+            borderRadius: '12px',
+            padding: '20px',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+            border: `1px solid #f3f4f6`
+          }}>
+            {recentActivity.map((activity) => (
+              <div key={activity.id} style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '12px 0',
+                borderBottom: activity.id !== recentActivity.length ? '1px solid #f3f4f6' : 'none'
+              }}>
+                <div style={{
+                  width: '32px',
+                  height: '32px',
+                  backgroundColor: `${getActivityColor(activity.type)}20`,
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '14px'
+                }}>
+                  {getActivityIcon(activity.type)}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ 
+                    fontSize: '14px', 
+                    fontWeight: '500', 
+                    color: colors.dark,
+                    marginBottom: '2px'
+                  }}>
+                    {activity.action}
+                  </div>
+                  <div style={{ 
+                    fontSize: '12px', 
+                    color: '#6b7280'
+                  }}>
+                    {activity.user} • {activity.time}
+                  </div>
+                </div>
+              </div>
+            ))}
+            
+            <div style={{ 
+              textAlign: 'center', 
+              marginTop: '16px' 
+            }}>
+              <button 
+                onClick={onShowActivity}
+                style={{
+                padding: '8px 16px',
+                backgroundColor: colors.gray[100],
+                color: colors.gray[700],
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: '500',
+                cursor: 'pointer'
+              }}>
+                View All Activity
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AdminPanel({ onShowUserManagement, onShowSystemMonitoring, onShowAddTile }: any) {
   return (
     <div>
       <div style={{ marginBottom: '32px' }}>
@@ -1591,7 +2415,9 @@ function AdminPanel() {
           <p style={{ color: '#6b7280', marginBottom: '16px' }}>
             Add, edit, or remove applications from the portal
           </p>
-          <button className="btn-primary" style={{
+          <button 
+            onClick={onShowAddTile}
+            className="btn-primary" style={{
             padding: '10px 16px',
             backgroundColor: colors.primary,
             color: colors.white,
@@ -1618,7 +2444,9 @@ function AdminPanel() {
           <p style={{ color: '#6b7280', marginBottom: '16px' }}>
             Manage user accounts, roles, and permissions
           </p>
-          <button className="btn-primary" style={{
+          <button 
+            onClick={onShowUserManagement}
+            className="btn-primary" style={{
             padding: '10px 16px',
             backgroundColor: colors.secondary,
             color: colors.white,
@@ -1645,7 +2473,9 @@ function AdminPanel() {
           <p style={{ color: '#6b7280', marginBottom: '16px' }}>
             View usage statistics and system performance
           </p>
-          <button className="btn-primary" style={{
+          <button 
+            onClick={onShowSystemMonitoring}
+            className="btn-primary" style={{
             padding: '10px 16px',
             backgroundColor: colors.accent,
             color: colors.white,
@@ -2256,6 +3086,953 @@ function ShippingToolsModal({ onClose }: { onClose: () => void }) {
             <li>Upload your data file first, then click the desired processing button</li>
             <li>Processed files will be automatically downloaded</li>
           </ul>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Admin Modal Components
+function UserManagementModal({ onClose }: { onClose: () => void }) {
+  const [users, setUsers] = useState([
+    { id: 1, name: 'Administrator', email: 'admin@logogear.co.in', role: 'Admin', status: 'Active', lastLogin: '2 hours ago' },
+    { id: 2, name: 'Junaid', email: 'junaid@logogear.co.in', role: 'User', status: 'Active', lastLogin: '1 day ago' },
+    { id: 3, name: 'Javed', email: 'javed@logogear.co.in', role: 'User', status: 'Active', lastLogin: '3 days ago' },
+    { id: 4, name: 'Support', email: 'support@techdrsti.com', role: 'User', status: 'Active', lastLogin: '5 minutes ago' },
+    { id: 5, name: 'Sidhanraj', email: 'sidhanraj@techdrsti.com', role: 'User', status: 'Inactive', lastLogin: '1 week ago' }
+  ])
+  const [showAddUserForm, setShowAddUserForm] = useState(false)
+  const [editingUser, setEditingUser] = useState<any>(null)
+  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'User', status: 'Active' })
+
+  const handleAddUser = () => {
+    if (newUser.name && newUser.email) {
+      const user = {
+        id: Math.max(...users.map(u => u.id)) + 1,
+        ...newUser,
+        lastLogin: 'Never'
+      }
+      setUsers([...users, user])
+      setNewUser({ name: '', email: '', role: 'User', status: 'Active' })
+      setShowAddUserForm(false)
+      alert('User added successfully!')
+    } else {
+      alert('Please fill in all required fields')
+    }
+  }
+
+  const handleEditUser = (user: any) => {
+    setEditingUser(user)
+    setNewUser({ name: user.name, email: user.email, role: user.role, status: user.status })
+    setShowAddUserForm(true)
+  }
+
+  const handleUpdateUser = () => {
+    if (editingUser && newUser.name && newUser.email) {
+      setUsers(users.map(u => 
+        u.id === editingUser.id 
+          ? { ...u, name: newUser.name, email: newUser.email, role: newUser.role, status: newUser.status }
+          : u
+      ))
+      setEditingUser(null)
+      setNewUser({ name: '', email: '', role: 'User', status: 'Active' })
+      setShowAddUserForm(false)
+      alert('User updated successfully!')
+    }
+  }
+
+  const handleDeleteUser = (userId: number) => {
+    if (userId === 1) {
+      alert('Cannot delete the administrator account')
+      return
+    }
+    if (confirm('Are you sure you want to delete this user?')) {
+      setUsers(users.filter(u => u.id !== userId))
+      alert('User deleted successfully!')
+    }
+  }
+
+  const handleExportUsers = () => {
+    const csvContent = [
+      ['Name', 'Email', 'Role', 'Status', 'Last Login'],
+      ...users.map(u => [u.name, u.email, u.role, u.status, u.lastLogin])
+    ].map(row => row.join(',')).join('\n')
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `users_export_${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    window.URL.revokeObjectURL(url)
+    alert('Users exported successfully!')
+  }
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000,
+      padding: '20px'
+    }}>
+      <div style={{
+        backgroundColor: colors.white,
+        borderRadius: '16px',
+        padding: '32px',
+        maxWidth: '800px',
+        width: '100%',
+        maxHeight: '90vh',
+        overflowY: 'auto'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <h2 style={{
+            fontSize: '24px',
+            fontWeight: 'bold',
+            color: colors.dark,
+            margin: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            👥 User Management
+          </h2>
+          <button onClick={onClose} style={{
+            background: 'none',
+            border: 'none',
+            fontSize: '24px',
+            cursor: 'pointer',
+            color: colors.gray[500]
+          }}>×</button>
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <button 
+            onClick={() => setShowAddUserForm(true)}
+            style={{
+            padding: '12px 20px',
+            backgroundColor: colors.primary,
+            color: colors.white,
+            border: 'none',
+            borderRadius: '8px',
+            fontSize: '14px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            marginRight: '12px'
+          }}>
+            ➕ Add User
+          </button>
+          <button 
+            onClick={handleExportUsers}
+            style={{
+            padding: '12px 20px',
+            backgroundColor: colors.gray[100],
+            color: colors.gray[700],
+            border: 'none',
+            borderRadius: '8px',
+            fontSize: '14px',
+            fontWeight: '600',
+            cursor: 'pointer'
+          }}>
+            📤 Export Users
+          </button>
+        </div>
+
+        {showAddUserForm && (
+          <div style={{
+            padding: '20px',
+            backgroundColor: colors.gray[50],
+            borderRadius: '8px',
+            marginBottom: '20px',
+            border: `1px solid ${colors.gray[200]}`
+          }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '600', color: colors.dark, marginBottom: '16px' }}>
+              {editingUser ? 'Edit User' : 'Add New User'}
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: colors.dark, marginBottom: '4px' }}>
+                  Name *
+                </label>
+                <input
+                  type="text"
+                  value={newUser.name}
+                  onChange={(e) => setNewUser({...newUser, name: e.target.value})}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: `1px solid ${colors.gray[300]}`,
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
+                  }}
+                  placeholder="Enter full name"
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: colors.dark, marginBottom: '4px' }}>
+                  Email *
+                </label>
+                <input
+                  type="email"
+                  value={newUser.email}
+                  onChange={(e) => setNewUser({...newUser, email: e.target.value})}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: `1px solid ${colors.gray[300]}`,
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
+                  }}
+                  placeholder="Enter email address"
+                />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: colors.dark, marginBottom: '4px' }}>
+                  Role
+                </label>
+                <select
+                  value={newUser.role}
+                  onChange={(e) => setNewUser({...newUser, role: e.target.value})}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: `1px solid ${colors.gray[300]}`,
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
+                  }}
+                >
+                  <option value="User">User</option>
+                  <option value="Admin">Admin</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: colors.dark, marginBottom: '4px' }}>
+                  Status
+                </label>
+                <select
+                  value={newUser.status}
+                  onChange={(e) => setNewUser({...newUser, status: e.target.value})}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: `1px solid ${colors.gray[300]}`,
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
+                  }}
+                >
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={editingUser ? handleUpdateUser : handleAddUser}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: colors.primary,
+                  color: colors.white,
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                {editingUser ? 'Update User' : 'Add User'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddUserForm(false)
+                  setEditingUser(null)
+                  setNewUser({ name: '', email: '', role: 'User', status: 'Active' })
+                }}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: colors.gray[200],
+                  color: colors.gray[700],
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div style={{
+          border: `1px solid ${colors.gray[200]}`,
+          borderRadius: '8px',
+          overflow: 'hidden'
+        }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '2fr 2fr 1fr 1fr 1fr 1fr',
+            gap: '16px',
+            padding: '16px',
+            backgroundColor: colors.gray[50],
+            fontWeight: '600',
+            fontSize: '14px',
+            color: colors.gray[700]
+          }}>
+            <div>Name</div>
+            <div>Email</div>
+            <div>Role</div>
+            <div>Status</div>
+            <div>Last Login</div>
+            <div>Actions</div>
+          </div>
+          {users.map((user) => (
+            <div key={user.id} style={{
+              display: 'grid',
+              gridTemplateColumns: '2fr 2fr 1fr 1fr 1fr 1fr',
+              gap: '16px',
+              padding: '16px',
+              borderTop: `1px solid ${colors.gray[200]}`,
+              fontSize: '14px'
+            }}>
+              <div style={{ fontWeight: '500', color: colors.dark }}>{user.name}</div>
+              <div style={{ color: colors.gray[600] }}>{user.email}</div>
+              <div>
+                <span style={{
+                  padding: '4px 8px',
+                  backgroundColor: user.role === 'Admin' ? `${colors.red}20` : `${colors.primary}20`,
+                  color: user.role === 'Admin' ? colors.red : colors.primary,
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontWeight: '500'
+                }}>
+                  {user.role}
+                </span>
+              </div>
+              <div>
+                <span style={{
+                  padding: '4px 8px',
+                  backgroundColor: user.status === 'Active' ? `${colors.green}20` : `${colors.gray[300]}`,
+                  color: user.status === 'Active' ? colors.green : colors.gray[600],
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontWeight: '500'
+                }}>
+                  {user.status}
+                </span>
+              </div>
+              <div style={{ color: colors.gray[600] }}>{user.lastLogin}</div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  onClick={() => handleEditUser(user)}
+                  style={{
+                  padding: '4px 8px',
+                  backgroundColor: colors.accent,
+                  color: colors.white,
+                  border: 'none',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  cursor: 'pointer'
+                }}>
+                  Edit
+                </button>
+                <button 
+                  onClick={() => handleDeleteUser(user.id)}
+                  style={{
+                  padding: '4px 8px',
+                  backgroundColor: colors.red,
+                  color: colors.white,
+                  border: 'none',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  cursor: 'pointer'
+                }}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SystemMonitoringModal({ onClose }: { onClose: () => void }) {
+  const [systemMetrics, setSystemMetrics] = useState({
+    cpuUsage: 45,
+    memoryUsage: 62,
+    diskUsage: 78,
+    networkIn: '1.2 MB/s',
+    networkOut: '0.8 MB/s',
+    uptime: '15 days, 4 hours'
+  })
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000,
+      padding: '20px'
+    }}>
+      <div style={{
+        backgroundColor: colors.white,
+        borderRadius: '16px',
+        padding: '32px',
+        maxWidth: '700px',
+        width: '100%',
+        maxHeight: '90vh',
+        overflowY: 'auto'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <h2 style={{
+            fontSize: '24px',
+            fontWeight: 'bold',
+            color: colors.dark,
+            margin: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            📊 System Monitoring
+          </h2>
+          <button onClick={onClose} style={{
+            background: 'none',
+            border: 'none',
+            fontSize: '24px',
+            cursor: 'pointer',
+            color: colors.gray[500]
+          }}>×</button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+          <div style={{
+            padding: '20px',
+            backgroundColor: colors.gray[50],
+            borderRadius: '12px',
+            border: `1px solid ${colors.gray[200]}`
+          }}>
+            <div style={{ fontSize: '14px', color: colors.gray[600], marginBottom: '8px' }}>CPU Usage</div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: colors.primary, marginBottom: '8px' }}>
+              {systemMetrics.cpuUsage}%
+            </div>
+            <div style={{
+              width: '100%',
+              height: '8px',
+              backgroundColor: colors.gray[200],
+              borderRadius: '4px',
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                width: `${systemMetrics.cpuUsage}%`,
+                height: '100%',
+                backgroundColor: systemMetrics.cpuUsage > 80 ? colors.red : systemMetrics.cpuUsage > 60 ? colors.orange : colors.green,
+                transition: 'width 0.3s'
+              }}></div>
+            </div>
+          </div>
+
+          <div style={{
+            padding: '20px',
+            backgroundColor: colors.gray[50],
+            borderRadius: '12px',
+            border: `1px solid ${colors.gray[200]}`
+          }}>
+            <div style={{ fontSize: '14px', color: colors.gray[600], marginBottom: '8px' }}>Memory Usage</div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: colors.secondary, marginBottom: '8px' }}>
+              {systemMetrics.memoryUsage}%
+            </div>
+            <div style={{
+              width: '100%',
+              height: '8px',
+              backgroundColor: colors.gray[200],
+              borderRadius: '4px',
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                width: `${systemMetrics.memoryUsage}%`,
+                height: '100%',
+                backgroundColor: systemMetrics.memoryUsage > 80 ? colors.red : systemMetrics.memoryUsage > 60 ? colors.orange : colors.green,
+                transition: 'width 0.3s'
+              }}></div>
+            </div>
+          </div>
+
+          <div style={{
+            padding: '20px',
+            backgroundColor: colors.gray[50],
+            borderRadius: '12px',
+            border: `1px solid ${colors.gray[200]}`
+          }}>
+            <div style={{ fontSize: '14px', color: colors.gray[600], marginBottom: '8px' }}>Disk Usage</div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: colors.accent, marginBottom: '8px' }}>
+              {systemMetrics.diskUsage}%
+            </div>
+            <div style={{
+              width: '100%',
+              height: '8px',
+              backgroundColor: colors.gray[200],
+              borderRadius: '4px',
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                width: `${systemMetrics.diskUsage}%`,
+                height: '100%',
+                backgroundColor: systemMetrics.diskUsage > 80 ? colors.red : systemMetrics.diskUsage > 60 ? colors.orange : colors.green,
+                transition: 'width 0.3s'
+              }}></div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+          <div style={{
+            padding: '20px',
+            backgroundColor: colors.gray[50],
+            borderRadius: '12px',
+            border: `1px solid ${colors.gray[200]}`
+          }}>
+            <h3 style={{ fontSize: '16px', fontWeight: '600', color: colors.dark, marginBottom: '16px' }}>
+              Network Activity
+            </h3>
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{ fontSize: '14px', color: colors.gray[600] }}>Incoming</div>
+              <div style={{ fontSize: '18px', fontWeight: 'bold', color: colors.green }}>
+                {systemMetrics.networkIn}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '14px', color: colors.gray[600] }}>Outgoing</div>
+              <div style={{ fontSize: '18px', fontWeight: 'bold', color: colors.orange }}>
+                {systemMetrics.networkOut}
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            padding: '20px',
+            backgroundColor: colors.gray[50],
+            borderRadius: '12px',
+            border: `1px solid ${colors.gray[200]}`
+          }}>
+            <h3 style={{ fontSize: '16px', fontWeight: '600', color: colors.dark, marginBottom: '16px' }}>
+              System Info
+            </h3>
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{ fontSize: '14px', color: colors.gray[600] }}>Uptime</div>
+              <div style={{ fontSize: '18px', fontWeight: 'bold', color: colors.primary }}>
+                {systemMetrics.uptime}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '14px', color: colors.gray[600] }}>Status</div>
+              <div style={{ fontSize: '18px', fontWeight: 'bold', color: colors.green }}>
+                Healthy
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FileManagementModal({ onClose }: { onClose: () => void }) {
+  const [fileStats, setFileStats] = useState({
+    totalFiles: 0,
+    totalSize: '0 MB',
+    oldFiles: 0,
+    cleanupEnabled: true
+  })
+
+  useEffect(() => {
+    fetchFileStats()
+  }, [])
+
+  const fetchFileStats = async () => {
+    try {
+      const response = await fetch('/api/cleanup/status', { credentials: 'include' })
+      if (response.ok) {
+        const data = await response.json()
+        setFileStats({
+          totalFiles: data.totalFiles || 0,
+          totalSize: `${((data.totalSize || 0) / 1024 / 1024).toFixed(2)} MB`,
+          oldFiles: data.oldFiles || 0,
+          cleanupEnabled: true
+        })
+      }
+    } catch (error) {
+      console.error('Failed to fetch file stats:', error)
+    }
+  }
+
+  const runCleanup = async () => {
+    try {
+      const response = await fetch('/api/cleanup/run', { 
+        method: 'POST',
+        credentials: 'include' 
+      })
+      if (response.ok) {
+        alert('Cleanup completed successfully!')
+        fetchFileStats()
+      }
+    } catch (error) {
+      console.error('Failed to run cleanup:', error)
+      alert('Cleanup failed. Please try again.')
+    }
+  }
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000,
+      padding: '20px'
+    }}>
+      <div style={{
+        backgroundColor: colors.white,
+        borderRadius: '16px',
+        padding: '32px',
+        maxWidth: '600px',
+        width: '100%',
+        maxHeight: '90vh',
+        overflowY: 'auto'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <h2 style={{
+            fontSize: '24px',
+            fontWeight: 'bold',
+            color: colors.dark,
+            margin: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            🗂️ File Management
+          </h2>
+          <button onClick={onClose} style={{
+            background: 'none',
+            border: 'none',
+            fontSize: '24px',
+            cursor: 'pointer',
+            color: colors.gray[500]
+          }}>×</button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+          <div style={{
+            padding: '16px',
+            backgroundColor: colors.gray[50],
+            borderRadius: '8px',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: colors.primary }}>
+              {fileStats.totalFiles}
+            </div>
+            <div style={{ fontSize: '14px', color: colors.gray[600] }}>Total Files</div>
+          </div>
+          <div style={{
+            padding: '16px',
+            backgroundColor: colors.gray[50],
+            borderRadius: '8px',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: colors.secondary }}>
+              {fileStats.totalSize}
+            </div>
+            <div style={{ fontSize: '14px', color: colors.gray[600] }}>Total Size</div>
+          </div>
+          <div style={{
+            padding: '16px',
+            backgroundColor: colors.gray[50],
+            borderRadius: '8px',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: colors.orange }}>
+              {fileStats.oldFiles}
+            </div>
+            <div style={{ fontSize: '14px', color: colors.gray[600] }}>Old Files</div>
+          </div>
+        </div>
+
+        <div style={{
+          padding: '20px',
+          backgroundColor: colors.cyan[50],
+          borderRadius: '12px',
+          border: `1px solid ${colors.cyan[200]}`,
+          marginBottom: '20px'
+        }}>
+          <h3 style={{ fontSize: '16px', fontWeight: '600', color: colors.dark, marginBottom: '12px' }}>
+            🔄 Cleanup Policy
+          </h3>
+          <ul style={{ fontSize: '14px', color: colors.gray[700], lineHeight: '1.6', margin: 0, paddingLeft: '20px' }}>
+            <li>Files are deleted immediately after download (3 seconds delay)</li>
+            <li>Undownloaded files are kept for 7 days</li>
+            <li>Only ref_counter.txt is kept permanently</li>
+            <li>Automatic cleanup runs every 24 hours</li>
+          </ul>
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button
+            onClick={runCleanup}
+            style={{
+              flex: 1,
+              padding: '12px 20px',
+              backgroundColor: colors.red,
+              color: colors.white,
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer'
+            }}
+          >
+            🗑️ Run Manual Cleanup
+          </button>
+          <button
+            onClick={fetchFileStats}
+            style={{
+              flex: 1,
+              padding: '12px 20px',
+              backgroundColor: colors.primary,
+              color: colors.white,
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer'
+            }}
+          >
+            🔄 Refresh Stats
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ActivityModal({ onClose }: { onClose: () => void }) {
+  const [activities, setActivities] = useState([
+    { id: 1, user: 'support@techdrsti.com', action: 'Generated BlueDart file', time: '2 minutes ago', type: 'file', details: '25 records processed' },
+    { id: 2, user: 'junaid@logogear.co.in', action: 'Logged in', time: '15 minutes ago', type: 'auth', details: 'SSO authentication' },
+    { id: 3, user: 'admin', action: 'System cleanup completed', time: '1 hour ago', type: 'system', details: '0 files deleted' },
+    { id: 4, user: 'javed@logogear.co.in', action: 'Generated DC files', time: '2 hours ago', type: 'file', details: '15 DC files created' },
+    { id: 5, user: 'support@techdrsti.com', action: 'Accessed shipping tools', time: '3 hours ago', type: 'access', details: 'BlueDart processing' },
+    { id: 6, user: 'admin', action: 'User management accessed', time: '4 hours ago', type: 'admin', details: 'Viewed user list' },
+    { id: 7, user: 'sidhanraj@techdrsti.com', action: 'Failed login attempt', time: '5 hours ago', type: 'security', details: 'Invalid credentials' },
+    { id: 8, user: 'info@logogear.co.in', action: 'Logged out', time: '6 hours ago', type: 'auth', details: 'Session ended' }
+  ])
+
+  const handleExportActivity = () => {
+    const csvContent = [
+      ['User', 'Action', 'Time', 'Type', 'Details'],
+      ...activities.map(a => [a.user, a.action, a.time, a.type, a.details])
+    ].map(row => row.join(',')).join('\n')
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `activity_log_${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    window.URL.revokeObjectURL(url)
+    alert('Activity log exported successfully!')
+  }
+
+  const getActivityIcon = (type: string) => {
+    switch (type) {
+      case 'file': return '📄'
+      case 'auth': return '🔐'
+      case 'system': return '⚙️'
+      case 'access': return '👁️'
+      case 'admin': return '👤'
+      case 'security': return '🚨'
+      default: return '📝'
+    }
+  }
+
+  const getActivityColor = (type: string) => {
+    switch (type) {
+      case 'file': return colors.accent
+      case 'auth': return colors.green
+      case 'system': return colors.purple
+      case 'access': return colors.primary
+      case 'admin': return colors.red
+      case 'security': return colors.orange
+      default: return colors.gray[500]
+    }
+  }
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000,
+      padding: '20px'
+    }}>
+      <div style={{
+        backgroundColor: colors.white,
+        borderRadius: '16px',
+        padding: '32px',
+        maxWidth: '800px',
+        width: '100%',
+        maxHeight: '90vh',
+        overflowY: 'auto'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <h2 style={{
+            fontSize: '24px',
+            fontWeight: 'bold',
+            color: colors.dark,
+            margin: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            📊 System Activity Log
+          </h2>
+          <button onClick={onClose} style={{
+            background: 'none',
+            border: 'none',
+            fontSize: '24px',
+            cursor: 'pointer',
+            color: colors.gray[500]
+          }}>×</button>
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <input
+            type="text"
+            placeholder="Search activities..."
+            style={{
+              width: '100%',
+              padding: '12px 16px',
+              border: `1px solid ${colors.gray[300]}`,
+              borderRadius: '8px',
+              fontSize: '14px',
+              boxSizing: 'border-box'
+            }}
+          />
+        </div>
+
+        <div style={{
+          border: `1px solid ${colors.gray[200]}`,
+          borderRadius: '8px',
+          overflow: 'hidden'
+        }}>
+          {activities.map((activity) => (
+            <div key={activity.id} style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '16px',
+              padding: '16px',
+              borderBottom: activity.id !== activities.length ? `1px solid ${colors.gray[200]}` : 'none',
+              backgroundColor: activity.type === 'security' ? `${colors.orange}10` : 'transparent'
+            }}>
+              <div style={{
+                width: '40px',
+                height: '40px',
+                backgroundColor: `${getActivityColor(activity.type)}20`,
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '18px'
+              }}>
+                {getActivityIcon(activity.type)}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ 
+                  fontSize: '16px', 
+                  fontWeight: '500', 
+                  color: colors.dark,
+                  marginBottom: '4px'
+                }}>
+                  {activity.action}
+                </div>
+                <div style={{ 
+                  fontSize: '14px', 
+                  color: colors.gray[600],
+                  marginBottom: '2px'
+                }}>
+                  {activity.user} • {activity.time}
+                </div>
+                <div style={{ 
+                  fontSize: '12px', 
+                  color: colors.gray[500]
+                }}>
+                  {activity.details}
+                </div>
+              </div>
+              <div>
+                <span style={{
+                  padding: '4px 8px',
+                  backgroundColor: `${getActivityColor(activity.type)}20`,
+                  color: getActivityColor(activity.type),
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  textTransform: 'uppercase'
+                }}>
+                  {activity.type}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ 
+          textAlign: 'center', 
+          marginTop: '20px' 
+        }}>
+          <button 
+            onClick={handleExportActivity}
+            style={{
+            padding: '12px 24px',
+            backgroundColor: colors.primary,
+            color: colors.white,
+            border: 'none',
+            borderRadius: '8px',
+            fontSize: '14px',
+            fontWeight: '600',
+            cursor: 'pointer'
+          }}>
+            📤 Export Activity Log
+          </button>
         </div>
       </div>
     </div>
