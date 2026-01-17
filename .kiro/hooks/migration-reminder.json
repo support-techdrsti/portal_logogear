@@ -1,0 +1,13 @@
+{
+  "name": "Migration Reminder",
+  "description": "Remind to run migrations when Prisma schema changes",
+  "trigger": {
+    "type": "file_save",
+    "pattern": "prisma/schema.prisma"
+  },
+  "action": {
+    "type": "message",
+    "message": "⚠️ Prisma schema updated! Don't forget to:\n1. Run `npm run migrate` to create migration\n2. Run `npm run db:generate` to update Prisma client\n3. Update seed file if needed\n4. Test the migration with sample data"
+  },
+  "enabled": true
+}

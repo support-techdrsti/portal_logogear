@@ -1,0 +1,7 @@
+# Logo Gear Assets
+
+This directory should contain:
+1. logo-gear.png - The blue oval Logo Gear logo
+2. signatory-seal.png - The circular blue authorized signatory stamp
+
+These images will be embedded in the DC files automatically.

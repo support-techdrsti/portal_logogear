@@ -1,0 +1,13 @@
+{
+  "name": "Run Tests on Save",
+  "description": "Run tests when TypeScript files are saved",
+  "trigger": {
+    "type": "file_save",
+    "pattern": "**/*.ts"
+  },
+  "action": {
+    "type": "command",
+    "command": "npm test"
+  },
+  "enabled": false
+}

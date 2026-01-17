@@ -1,0 +1,40 @@
+{
+  "name": "logogear-internal-portal",
+  "version": "1.0.0",
+  "description": "Secure internal web portal for Logogear employees with SSO integration",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "start": "cd backend && npm start",
+    "test": "cd backend && npm test",
+    "test:watch": "cd backend && npm run test:watch",
+    "lint": "cd backend && npm run lint",
+    "migrate": "cd backend && npm run migrate",
+    "migrate:prod": "cd backend && npm run migrate:prod",
+    "db:seed": "cd backend && npm run db:seed",
+    "db:studio": "cd backend && npm run db:studio",
+    "db:generate": "cd backend && npm run db:generate",
+    "setup:dev": "chmod +x deployment/scripts/setup-dev.sh && ./deployment/scripts/setup-dev.sh",
+    "deploy:staging": "chmod +x deployment/scripts/deploy-staging.sh && ./deployment/scripts/deploy-staging.sh",
+    "deploy:prod": "chmod +x deployment/scripts/deploy-production.sh && ./deployment/scripts/deploy-production.sh",
+    "backup:db": "chmod +x deployment/scripts/backup-db.sh && ./deployment/scripts/backup-db.sh",
+    "docker:dev": "docker-compose -f deployment/docker-compose.dev.yml up -d",
+    "docker:staging": "docker-compose -f deployment/docker-compose.staging.yml up -d",
+    "docker:prod": "docker-compose -f deployment/docker-compose.prod.yml up -d"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "workspaces": [
+    "backend",
+    "frontend"
+  ]
+}

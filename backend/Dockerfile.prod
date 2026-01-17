@@ -1,0 +1,77 @@
+# Multi-stage build for production
+FROM node:18-alpine AS builder
+
+# Set working directory
+WORKDIR /app
+
+# Install Python and required packages for Python scripts
+RUN apk add --no-cache python3 py3-pip python3-dev build-base
+RUN pip3 install pandas openpyxl
+
+# Copy package files
+COPY package*.json ./
+
+# Configure npm for better reliability
+RUN npm config set fetch-timeout 600000 && \
+    npm config set fetch-retry-mintimeout 10000 && \
+    npm config set fetch-retry-maxtimeout 60000 && \
+    npm config set fetch-retries 5
+
+# Install ALL dependencies (including devDependencies for build)
+RUN if [ -f package-lock.json ]; then npm ci --verbose; else npm install --verbose; fi
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Production stage
+FROM node:18-alpine AS production
+
+# Install Python and required packages for runtime
+RUN apk add --no-cache python3 py3-pip dumb-init
+RUN pip3 install pandas openpyxl
+
+# Create app user
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nodejs -u 1001
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Configure npm for better reliability
+RUN npm config set fetch-timeout 600000 && \
+    npm config set fetch-retry-mintimeout 10000 && \
+    npm config set fetch-retry-maxtimeout 60000 && \
+    npm config set fetch-retries 5
+
+# Install only production dependencies
+RUN if [ -f package-lock.json ]; then npm ci --only=production --verbose; else npm install --only=production --verbose; fi && npm cache clean --force
+
+# Copy built application from builder stage
+COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
+
+# Copy Python scripts and templates
+COPY --chown=nodejs:nodejs scripts ./scripts
+COPY --chown=nodejs:nodejs ../templates ./templates
+
+# Create necessary directories
+RUN mkdir -p uploads output logs && chown -R nodejs:nodejs uploads output logs
+
+# Switch to non-root user
+USER nodejs
+
+# Expose port
+EXPOSE 3006
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3006/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+
+# Start the application
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "dist/server-auth.js"]
