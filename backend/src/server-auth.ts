@@ -13,6 +13,10 @@ import moment from 'moment';
 // Load environment variables
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
+// File cleanup configuration
+const RETENTION_DAYS = 7;
+const CLEANUP_INTERVAL_HOURS = 24; // Run cleanup every 24 hours
+
 // Authorized users for SSO
 const AUTHORIZED_USERS = [
   'junaid@logogear.co.in',
@@ -30,8 +34,98 @@ const ADMIN_CREDENTIALS = {
   password: 'l0g0gear'
 };
 
+// File cleanup functions
+function cleanupOldFiles() {
+  const outputDir = path.resolve(__dirname, '../../output');
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - RETENTION_DAYS);
+  
+  console.log(`🧹 Running cleanup for files older than ${RETENTION_DAYS} days...`);
+  
+  try {
+    if (!fs.existsSync(outputDir)) {
+      return;
+    }
+    
+    const items = fs.readdirSync(outputDir);
+    let deletedCount = 0;
+    
+    for (const item of items) {
+      const itemPath = path.join(outputDir, item);
+      
+      // Skip the counter file - it's permanent
+      if (item === 'ref_counter.txt') {
+        continue;
+      }
+      
+      try {
+        const stats = fs.statSync(itemPath);
+        
+        if (stats.mtime < cutoffDate) {
+          if (stats.isDirectory()) {
+            fs.rmSync(itemPath, { recursive: true, force: true });
+          } else {
+            fs.unlinkSync(itemPath);
+          }
+          deletedCount++;
+          console.log(`🗑️  Deleted old file/directory: ${item}`);
+        }
+      } catch (error) {
+        console.error(`❌ Error deleting ${item}:`, error.message);
+      }
+    }
+    
+    console.log(`✅ Cleanup completed. Deleted ${deletedCount} old items.`);
+  } catch (error) {
+    console.error('❌ Error during cleanup:', error.message);
+  }
+}
+
+function deleteFileAfterDownload(filePath: string, delay: number = 5000) {
+  // Delete file after a short delay to ensure download completed
+  setTimeout(() => {
+    try {
+      if (fs.existsSync(filePath)) {
+        // If it's a directory, delete recursively
+        const stats = fs.statSync(filePath);
+        if (stats.isDirectory()) {
+          fs.rmSync(filePath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(filePath);
+        }
+        console.log(`🗑️  Immediate cleanup: Deleted ${path.basename(filePath)}`);
+      }
+    } catch (error) {
+      console.error(`❌ Error in immediate cleanup for ${filePath}:`, error.message);
+    }
+  }, delay);
+}
+
+function logFileGeneration(userId: string, fileType: string, filename: string, success: boolean, details?: any) {
+  // In a real app, this would log to database
+  // For now, we'll log to console and could extend to database later
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    userId,
+    fileType,
+    filename,
+    success,
+    details: details || {}
+  };
+  
+  console.log('📊 File Generation Log:', JSON.stringify(logEntry));
+  
+  // TODO: Add database logging here when database is set up
+  // await db.fileLogs.create({ data: logEntry });
+}
+
 const app = express();
 const PORT = process.env.PORT || 3006;
+
+// Start periodic cleanup
+setInterval(cleanupOldFiles, CLEANUP_INTERVAL_HOURS * 60 * 60 * 1000);
+// Run cleanup once on startup
+setTimeout(cleanupOldFiles, 5000);
 
 // Configure multer for file uploads
 const upload = multer({ 
@@ -147,6 +241,83 @@ app.post('/auth/logout', (req, res) => {
     success: true,
     message: 'Logged out successfully'
   });
+});
+
+// Cleanup status endpoint
+app.get('/api/cleanup/status', (req, res) => {
+  const outputDir = path.resolve(__dirname, '../../output');
+  
+  try {
+    if (!fs.existsSync(outputDir)) {
+      return res.json({
+        success: true,
+        status: 'Output directory does not exist',
+        totalFiles: 0,
+        totalSize: 0,
+        retentionDays: RETENTION_DAYS,
+        cleanupInterval: `${CLEANUP_INTERVAL_HOURS} hours`
+      });
+    }
+    
+    const items = fs.readdirSync(outputDir);
+    let totalFiles = 0;
+    let totalSize = 0;
+    let oldFiles = 0;
+    
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - RETENTION_DAYS);
+    
+    for (const item of items) {
+      const itemPath = path.join(outputDir, item);
+      
+      try {
+        const stats = fs.statSync(itemPath);
+        totalFiles++;
+        totalSize += stats.size;
+        
+        if (stats.mtime < cutoffDate && item !== 'ref_counter.txt') {
+          oldFiles++;
+        }
+      } catch (error) {
+        // Skip files that can't be accessed
+      }
+    }
+    
+    res.json({
+      success: true,
+      totalFiles,
+      totalSize,
+      oldFiles,
+      retentionDays: RETENTION_DAYS,
+      cleanupInterval: `${CLEANUP_INTERVAL_HOURS} hours`,
+      nextCleanup: 'Every 24 hours',
+      permanentFiles: ['ref_counter.txt']
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Error checking cleanup status',
+      message: error.message
+    });
+  }
+});
+
+// Manual cleanup trigger endpoint (for admin use)
+app.post('/api/cleanup/run', (req, res) => {
+  try {
+    cleanupOldFiles();
+    res.json({
+      success: true,
+      message: 'Manual cleanup triggered successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Error running manual cleanup',
+      message: error.message
+    });
+  }
 });
 
 // Test endpoint to verify API connection
@@ -598,8 +769,20 @@ app.post('/api/shipping-tools/bluedart', upload.single('dataFile'), async (req, 
                       error: 'Error sending BlueDart file' 
                     });
                   }
+                  // Log failed generation
+                  logFileGeneration('anonymous', 'BLUEDART', result.filename, false, { error: err.message });
                 } else {
                   console.log(`BlueDart file sent successfully: ${result.filename}`);
+                  
+                  // Log successful generation
+                  logFileGeneration('anonymous', 'BLUEDART', result.filename, true, { 
+                    recordCount: result.count,
+                    fileSize: fs.statSync(absolutePath).size 
+                  });
+                  
+                  // Schedule immediate cleanup of the batch directory
+                  const batchDir = path.dirname(absolutePath);
+                  deleteFileAfterDownload(batchDir, 3000); // Delete after 3 seconds
                 }
               });
               
@@ -782,7 +965,23 @@ app.post('/api/shipping-tools/dc', upload.single('dataFile'), async (req, res) =
             const fileStream = fs.createReadStream(zipPath);
             fileStream.pipe(res);
             
+            // Log successful generation
+            logFileGeneration('anonymous', 'DC', path.basename(zipPath), true, { 
+              recordCount: result.count,
+              fileCount: result.files.length,
+              fileSize: fs.statSync(zipPath).size 
+            });
+            
+            // Schedule immediate cleanup of the ZIP file
+            deleteFileAfterDownload(zipPath, 3000); // Delete after 3 seconds
+            
           } else {
+            // Log failed generation
+            logFileGeneration('anonymous', 'DC', `DC_Files_${batchId}.zip`, false, { 
+              error: 'No DC files generated',
+              inputFile: req.file.originalname 
+            });
+            
             res.status(500).json({ 
               success: false, 
               error: 'No DC files were generated. Please check your data format.' 

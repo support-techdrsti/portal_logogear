@@ -91,8 +91,8 @@ def generate_dc_files(csv_file_path, template_path, output_dir):
                 landmark_cell.value = landmark or ''
                 citypin_cell.value = f"{city} - {pincode}"
                 statecty_cell.value = f"{state}, {country}"
-                mobile_cell.value = f"Mob: {mobile}"
-                email_cell.value = f"Email: {email}"
+                mobile_cell.value = f"{mobile}"
+                #email_cell.value = f"Email: {email}"
                 
                 print(f"[SUCCESS] Filled customer data: {full_name}")
                 
